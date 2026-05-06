@@ -107,64 +107,102 @@ TwoWayTreeLRT <- function(sample_data, significance_level){
     return(var_1_0)
   }
 
-  Func_MLE_1<-function(sample_data_list){
-    cell_means <- sapply(1:(a+1), function(i)
-      sapply(1:(b+1), function(j) mean(sample_data_list[[i]][[j]]))
+  Func_MLE_1 <- function(sample_data_list){
+    mean1 <- sapply(1:(a+1), function(i)
+      sapply(1:(b+1), function(j)
+        mean(sample_data_list[[i]][[j]])
+      )
     )
-    cell_means<-matrix(cell_means, nrow = (a+1), ncol = (b+1), byrow = TRUE)
+    mean1 <- matrix(mean1,
+                    nrow = (a+1),
+                    ncol = (b+1),
+                    byrow = TRUE)
     cell_ns <- sapply(1:(a+1), function(i)
-      sapply(1:(b+1), function(j) length(sample_data_list[[i]][[j]]))
+      sapply(1:(b+1), function(j)
+        length(sample_data_list[[i]][[j]])
+      )
     )
-    cell_ns <- matrix(cell_ns, nrow = (a+1), ncol = (b+1), byrow = TRUE)
-    cell_vars <- sapply(1:(a+1), function(i)
-      sapply(1:(b+1), function(j) ((cell_ns[i,j] -1)/cell_ns[i,j])*var(sample_data_list[[i]][[j]]))
+    cell_ns <- matrix(cell_ns,
+                      nrow = (a+1),
+                      ncol = (b+1),
+                      byrow = TRUE)
+    var1 <- sapply(1:(a+1), function(i)
+      sapply(1:(b+1), function(j)
+        ((cell_ns[i,j]-1)/cell_ns[i,j]) *
+          var(sample_data_list[[i]][[j]])
+      )
     )
-    cell_vars <- matrix(cell_vars, nrow = (a+1), ncol = (b+1), byrow = TRUE)
-    alpha_0_1 <- rowSums(cell_means)
-    beta_0_1 <- colSums(cell_means)-mean(cell_means)
-    var_0_1 <- cell_vars
-    u_0_1 <- cell_ns/cell_vars
-
+    var1 <- matrix(var1,
+                   nrow = (a+1),
+                   ncol = (b+1),
+                   byrow = TRUE)
+    alpha_0_1 <- sapply(1:(a+1), function(i)
+      mean(mean1[i,])
+    )
+    beta_0_1 <- sapply(1:(b+1), function(j)
+      mean(mean1[,j]) - mean(mean1)
+    )
+    var_0_1 <- var1
     repeat{
+      u_0_1 <- cell_ns / var_0_1
       w <- rowSums(u_0_1)
-      x <- sapply(1:(a+1), function(i) {
-        sum_4 <- sum(u_0_1[i, ] * cell_means[i, ])
-        sum_5 <- sum((u_0_1[i, (b+1)]-u_0_1[i, 1:b]) * beta_0_1[1:b])
-        (1 / w[i]) * (sum_4 + sum_5)
+      x <- sapply(1:(a+1), function(i){
+        sum_4 <- sum(
+          sapply(1:(b+1), function(j)
+            u_0_1[i,j] * mean1[i,j]
+          )
+        )
+        sum_5 <- sum(
+          sapply(1:b, function(j)
+            (-u_0_1[i,j] + u_0_1[i,b+1]) *
+              beta_0_1[j]
+          )
+        )
+        (1/w[i]) * (sum_4 + sum_5)
       })
-      alpha_1<- R_MLE(x,w)  #### Updated value of alpha
-
-      # Compute t_b
-      t_b <- sapply(1:b, function(j) {
-        sum(u_0_1[, j] * (cell_means[, j] - alpha_1) - u_0_1[, (b+1)] * (cell_means[, (b+1)] - alpha_1))
+      alpha_1 <- R_MLE(x,w)
+      t_b <- sapply(1:b, function(j){
+        sum(
+          sapply(1:(a+1), function(i)
+            u_0_1[i,j] *(mean1[i,j] - alpha_1[i])-u_0_1[i,b+1] *(mean1[i,b+1] - alpha_1[i])
+          )
+        )
       })
+      Q_1 <- sapply(1:b, function(j)
+        (a+1) * mean(u_0_1[,j])
+      )
+      Q <- diag(Q_1,
+                nrow = b,
+                ncol = b) +
 
-      # Compute Q and solve for beta_1
-      Q_1 <- a * colMeans(u_0_1[, 1:b, drop = FALSE])
-      Q <- diag(Q_1, nrow = b) + a * mean(u_0_1[, (b+1)]) * matrix(1, nrow = b, ncol = b)
-      beta_1_old <- solve(Q, t_b)
-
-      # Complete beta vector
+        (a+1) * mean(u_0_1[,b+1]) *
+        matrix(1, nrow = b, ncol = b)
+      beta_1_old <- solve(Q) %*% t_b
       beta_1 <- c(beta_1_old, -sum(beta_1_old))
+      var_1 <- sapply(1:(a+1), function(i)
+        sapply(1:(b+1), function(j)
+          (1/cell_ns[i,j]) *sum(
+            (sample_data_list[[i]][[j]]- alpha_1[i]- beta_1[j] )^2
+          )
+        )
+      )
+      var_1 <- matrix(var_1,nrow = (a+1),ncol = (b+1),byrow = TRUE)
 
-      # Update variances
-      var_1 <- sapply(1:(a+1), function(i) {
-        sapply(1:(b+1), function(j) {
-          (1 / cell_ns[i, j]) * sum((sample_data_list[[i]][[j]] - alpha_1[i] - beta_1[j])^2)
-        })
-      })
-      # ensure var_1 is matrix (a+1) x (b+1)
-      var_1 <- matrix(var_1, nrow = (a+1), ncol = (b+1), byrow = TRUE)
+      #### Stopping criteria
 
-      if(max(abs(alpha_1-alpha_0_1))<0.00001 & max(abs(beta_1-beta_0_1))<0.00001)  #### stopping criteria
+      if(max(abs(alpha_1-alpha_0_1)) < 0.00001 &
+         max(abs(beta_1-beta_0_1)) < 0.00001)
       {
         break
       }
-      alpha_0_1<-alpha_1
-      beta_0_1<-beta_1
-      var_0_1 <- var_1
 
-    }#### repeat
+      #### Update parameters
+
+      alpha_0_1 <- alpha_1
+      beta_0_1  <- beta_1
+      var_0_1   <- var_1
+    }
+
     return(var_1)
   }### Func_MLE_1
 
